@@ -10,6 +10,8 @@ import argparse
 import cv2
 import imutils
 import time
+import rospy
+import image_transport
 
 # construct the argument parse and parse the arguments
 ap = argparse.ArgumentParser()
