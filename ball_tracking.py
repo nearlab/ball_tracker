@@ -2,6 +2,8 @@
 # python ball_tracking.py --video ball_tracking_example.mp4
 # python ball_tracking.py
 
+# Don't forget about republish [in_transport] in:=<in_base_topic> [out_transport] out:=<out_base_topic>
+
 # import the necessary packages
 from collections import deque
 from imutils.video import VideoStream
@@ -11,15 +13,9 @@ import cv2
 import imutils
 import time
 import rospy
-import image_transport
-
+from sensor_msgs.msg import Image
 # construct the argument parse and parse the arguments
-ap = argparse.ArgumentParser()
-ap.add_argument("-v", "--video",
-	help="path to the (optional) video file")
-ap.add_argument("-b", "--buffer", type=int, default=64,
-	help="max buffer size")
-args = vars(ap.parse_args())
+
 
 # define the lower and upper boundaries of the "green"
 # ball in the HSV color space, then initialize the
@@ -45,7 +41,7 @@ else:
 time.sleep(2.0)
 
 # keep looping
-while True:
+while not rospy.is_shutdown():
 	# grab the current frame
 	frame = vs.read()
 
