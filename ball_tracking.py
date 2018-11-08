@@ -12,115 +12,118 @@ import argparse
 import cv2
 import imutils
 import time
+import roslib
 import rospy
 from sensor_msgs.msg import Image
-# construct the argument parse and parse the arguments
+from pv_estimator.msg import Meas
 
+class frame_grabber:
+	def __init__(self):
+		self.frame = np.zeros((256,256,3), np.uint8)	
+		self.time = rospy.Time()
 
-# define the lower and upper boundaries of the "green"
-# ball in the HSV color space, then initialize the
-# list of tracked points
-greenLower = (169, 100, 100)
-greenUpper = (189, 255, 255)
+  # Callback for when an image is available
+	def imageCallback(self, msg):
+		np_arr = np.fromstring(msg.data, np.uint8)
+		self.frame = cv2.imdecode(np_arr,cv2.IMREAD_COLOR)
+		#destRGB = cv2.cvtColor(srcBGR, cv2.COLOR_BGR2RGB)
+		self.time = msg.header.stamp
 
-lower_red = np.array([169,100,100],dtype=np.uint8)
-upper_red = np.array([189,255,255],dtype=np.uint8)
+def main(args):
+	rospy.init_node('ball_tracker', anonymous=True)	
 
-pts = deque(maxlen=args["buffer"])
+	### Image Processing variable here ###
+	redLower = (169, 100, 100)
+	redUpper = (189, 255, 255)
+	pts = deque()
 
-# if a video path was not supplied, grab the reference
-# to the webcam
-if not args.get("video", False):
-	vs = VideoStream(src=0).start()
+	### ROS variables ###
+	sub = rospy.Subscriber("/pixelink/image",Image,imageCallback,queue_size = 1)
+	pub = rospy.Publisher("/tracker/meas", Meas)
+	
+	tLastImg = rospy.Time()
+	tCurrImg = rospy.Time()
+	rate = rospy.Rate(100)
+	ig = image_grabber()
+			
+	# keep looping
+	while not rospy.is_shutdown():
 
-# otherwise, grab a reference to the video file
-else:
-	vs = cv2.VideoCapture(args["video"])
-
-# allow the camera or video file to warm up
-time.sleep(2.0)
-
-# keep looping
-while not rospy.is_shutdown():
-	# grab the current frame
-	frame = vs.read()
-
-	# handle the frame from VideoCapture or VideoStream
-	frame = frame[1] if args.get("video", False) else frame
-
-	# if we are viewing a video and we did not grab a frame,
-	# then we have reached the end of the video
-	if frame is None:
-		break
-
-	# resize the frame, blur it, and convert it to the HSV
-	# color space
-	frame = imutils.resize(frame, width=600)
-	blurred = cv2.GaussianBlur(frame, (11, 11), 0)
-	hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
-
-	# construct a mask for the color "green", then perform
-	# a series of dilations and erosions to remove any small
-	# blobs left in the mask
-	mask = cv2.inRange(hsv, greenLower, greenUpper)
-	mask = cv2.erode(mask, None, iterations=2)
-	mask = cv2.dilate(mask, None, iterations=2)
-
-	# find contours in the mask and initialize the current
-	# (x, y) center of the ball
-	cnts = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL,
-		cv2.CHAIN_APPROX_SIMPLE)
-	cnts = cnts[0] if imutils.is_cv2() else cnts[1]
-	center = None
-
-	# only proceed if at least one contour was found
-	if len(cnts) > 0:
-		# find the largest contour in the mask, then use
-		# it to compute the minimum enclosing circle and
-		# centroid
-		c = max(cnts, key=cv2.contourArea)
-		((x, y), radius) = cv2.minEnclosingCircle(c)
-		M = cv2.moments(c)
-		center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
-
-		# only proceed if the radius meets a minimum size
-		if radius > 10:
-			# draw the circle and centroid on the frame,
-			# then update the list of tracked points
-			cv2.circle(frame, (int(x), int(y)), int(radius),
-				(0, 255, 255), 2)
-			cv2.circle(frame, center, 5, (0, 0, 255), -1)
-
-	# update the points queue
-	pts.appendleft(center)
-
-	# loop over the set of tracked points
-	for i in range(1, len(pts)):
-		# if either of the tracked points are None, ignore
-		# them
-		if pts[i - 1] is None or pts[i] is None:
+		# check if new image is available
+		if(tCurrImg.toSec() <= tLastImg.toSec()):
+			rate.sleep()
+			rospy.spinOnce()
 			continue
+		
+		# resize the frame, blur it, and convert it to the HSV
+		# color space
+		frame = imutils.resize(ig.frame, width=600)
+		blurred = cv2.GaussianBlur(frame, (11, 11), 0)
+		hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
 
-		# otherwise, compute the thickness of the line and
-		# draw the connecting lines
-		thickness = int(np.sqrt(args["buffer"] / float(i + 1)) * 2.5)
-		cv2.line(frame, pts[i - 1], pts[i], (0, 0, 255), thickness)
+		# construct a mask for the color "green", then perform
+		# a series of dilations and erosions to remove any small
+		# blobs left in the mask
+		mask = cv2.inRange(hsv, redLower, redUpper)
+		mask = cv2.erode(mask, None, iterations=2)
+		mask = cv2.dilate(mask, None, iterations=2)
 
-	# show the frame to our screen
-	cv2.imshow("Frame", frame)
-	key = cv2.waitKey(1) & 0xFF
+		# find contours in the mask and initialize the current
+		# (x, y) center of the ball
+		cnts = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL,
+			cv2.CHAIN_APPROX_SIMPLE)
+		cnts = cnts[0] if imutils.is_cv2() else cnts[1]
+		center = None
 
-	# if the 'q' key is pressed, stop the loop
-	if key == ord("q"):
-		break
+		# only proceed if at least one contour was found
+		if len(cnts) > 0:
+			# find the largest contour in the mask, then use
+			# it to compute the minimum enclosing circle and
+			# centroid
+			c = max(cnts, key=cv2.contourArea)
+			((x, y), radius) = cv2.minEnclosingCircle(c)
+			M = cv2.moments(c)
+			center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
 
-# if we are not using a video file, stop the camera video stream
-if not args.get("video", False):
-	vs.stop()
+			# only proceed if the radius meets a minimum size
+			if radius > 10:
+				# draw the circle and centroid on the frame,
+				# then update the list of tracked points
+				cv2.circle(frame, (int(x), int(y)), int(radius),
+					(0, 255, 255), 2)
+				cv2.circle(frame, center, 5, (0, 0, 255), -1)
 
-# otherwise, release the camera
-else:
-	vs.release()
+		# update the points queue
+		pts.appendleft(center)
 
-# close all windows
-cv2.destroyAllWindows()
+		# loop over the set of tracked points
+		for i in range(1, len(pts)):
+			# if either of the tracked points are None, ignore
+			# them
+			if pts[i - 1] is None or pts[i] is None:
+				continue
+
+			# otherwise, compute the thickness of the line and
+			# draw the connecting lines
+			thickness = int(np.sqrt(args["buffer"] / float(i + 1)) * 2.5)
+			cv2.line(frame, pts[i - 1], pts[i], (0, 0, 255), thickness)
+
+		# show the frame to our screen
+		cv2.imshow("Frame", frame)
+		key = cv2.waitKey(1) & 0xFF
+
+		measMsg =Meas()
+		measMsg.r[0] = center[0]
+		measMsg.r[1] = center[1]
+		measMsg.v[0] = 0
+		measMsg.v[1] = 0
+		tCurr = rospy.Time.now() 
+		measMsg.tStamp = tCurr.toSec()
+		pub.publsih(measMsg)
+
+		tLastImg = tCurrImg
+		rate.sleep()
+		rospy.spinOnce()
+
+if __name__ == '__main__':
+	main(sys.argv)
