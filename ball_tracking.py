@@ -33,23 +33,26 @@ def main(args):
 	rospy.init_node('ball_tracker', anonymous=True)	
 
 	### Image Processing variable here ###
-	redLower = (169, 100, 100)
-	redUpper = (189, 255, 255)
-	pts = deque()
+	redLower = (150, 100, 100)
+	redUpper = (200, 255, 255)
+	prevFrame =  np.zeros((256,256,3), np.uint8)	
+	# lk_params = dict( winSize = (15,15),
+	# 									maxLevel = 2,
+	# 									criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, .03))
+
 
 	### ROS variables ###
-	ig = image_grabber()
-	sub = rospy.Subscriber("/pixelink/image",Image,ig.imageCallback,queue_size = 1)
+	fg = frame_grabber()
+	sub = rospy.Subscriber("/pixelink/image",Image,fg.imageCallback,queue_size = 1)
 	pub = rospy.Publisher("/tracker/meas", Meas)
 	
 	tLastImg = rospy.Time()
 	tCurrImg = rospy.Time()
 	rate = rospy.Rate(100)
-	
 			
 	# keep looping
 	while not rospy.is_shutdown():
-
+		v = (0,0)
 		# check if new image is available
 		if(tCurrImg.toSec() <= tLastImg.toSec()):
 			rate.sleep()
@@ -58,11 +61,12 @@ def main(args):
 		
 		# resize the frame, blur it, and convert it to the HSV
 		# color space
-		frame = imutils.resize(ig.frame, width=600)
+		frame = imutils.resize(fg.frame, width=600)
 		blurred = cv2.GaussianBlur(frame, (11, 11), 0)
+		grey = cv2.cvtColor(blurred, cv2.COLOR_BGR2GRAY)
 		hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
 
-		# construct a mask for the color "green", then perform
+		# construct a mask for the color "red", then perform
 		# a series of dilations and erosions to remove any small
 		# blobs left in the mask
 		mask = cv2.inRange(hsv, redLower, redUpper)
@@ -86,29 +90,21 @@ def main(args):
 			M = cv2.moments(c)
 			center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
 
-			# only proceed if the radius meets a minimum size
-			if radius > 10:
-				# draw the circle and centroid on the frame,
-				# then update the list of tracked points
-				cv2.circle(frame, (int(x), int(y)), int(radius),
-					(0, 255, 255), 2)
-				cv2.circle(frame, center, 5, (0, 0, 255), -1)
-
-		# update the points queue
-		pts.appendleft(center)
-
-		# loop over the set of tracked points
-		for i in range(1, len(pts)):
-			# if either of the tracked points are None, ignore
-			# them
-			if pts[i - 1] is None or pts[i] is None:
-				continue
-
-			# otherwise, compute the thickness of the line and
-			# draw the connecting lines
-			thickness = int(np.sqrt(args["buffer"] / float(i + 1)) * 2.5)
-			cv2.line(frame, pts[i - 1], pts[i], (0, 0, 255), thickness)
-
+			if(tLastImg.toSec()>0):
+				prevGrey = cv2.cvtColor(cv2.GaussianBlur(prevFrame,(11,11),0),cv2.COLOR_BGR2GRAY)
+				pts, st, err = cv2.calcOptFlowPyrLK(prevGrey,grey,c,None)#,**lk_params)
+				good_old = c[st==1]
+				good_new = pts[st==1]
+				s = np.sum(good_new-good_old,axis=0)
+				v = s/len(good_new[:,1])
+			# # only proceed if the radius meets a minimum size
+			# if radius > 10:
+			# 	# draw the circle and centroid on the frame,
+			# 	# then update the list of tracked points
+			# 	cv2.circle(frame, (int(x), int(y)), int(radius),
+			# 		(0, 255, 255), 2)
+			# 	cv2.circle(frame, center, 5, (0, 0, 255), -1)
+		prevFrame = frame
 		# show the frame to our screen
 		cv2.imshow("Frame", frame)
 		key = cv2.waitKey(1) & 0xFF
@@ -116,8 +112,8 @@ def main(args):
 		measMsg =Meas()
 		measMsg.r[0] = center[0]
 		measMsg.r[1] = center[1]
-		measMsg.v[0] = 0
-		measMsg.v[1] = 0
+		measMsg.v[0] = v[0]
+		measMsg.v[1] = v[1]
 		tCurr = rospy.Time.now() 
 		measMsg.tStamp = tCurr.toSec()
 		pub.publsih(measMsg)
