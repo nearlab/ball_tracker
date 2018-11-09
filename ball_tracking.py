@@ -38,13 +38,14 @@ def main(args):
 	pts = deque()
 
 	### ROS variables ###
-	sub = rospy.Subscriber("/pixelink/image",Image,imageCallback,queue_size = 1)
+	ig = image_grabber()
+	sub = rospy.Subscriber("/pixelink/image",Image,ig.imageCallback,queue_size = 1)
 	pub = rospy.Publisher("/tracker/meas", Meas)
 	
 	tLastImg = rospy.Time()
 	tCurrImg = rospy.Time()
 	rate = rospy.Rate(100)
-	ig = image_grabber()
+	
 			
 	# keep looping
 	while not rospy.is_shutdown():
