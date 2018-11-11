@@ -24,55 +24,35 @@ from pv_estimator.msg import Meas
 
 class frame_grabber:
 	def __init__(self):
-		self.frame = np.zeros((256,256,3), np.uint8)	
-		self.time = rospy.Time()
+		self.prevFrame = np.zeros((256,256,3),np.uint8)
+		self.tLastImg = rospy.Time()
 		self.bridge = CvBridge()
+		
+	  self.pub = rospy.Publisher("/tracker/meas", Meas, queue_size = 2)
 		print('Frame Grabber Initialized')
 
   # Callback for when an image is available
 	def imageCallback(self, msg):
 		print('image called back')
 		try:
-			self.frame = self.bridge.imgmsg_to_cv2(msg.data, "bgr8")
+			frame = self.bridge.imgmsg_to_cv2(msg.data, "bgr8")
 		except Exception as e:
 			logging.error(traceback.format_exc())
 		#destRGB = cv2.cvtColor(srcBGR, cv2.COLOR_BGR2RGB)
-		self.time = msg.header.stamp
+		tCurrImg = msg.header.stamp
 
-def main(args):
-	rospy.init_node('ball_tracker', anonymous=True)	
-
-	### Image Processing variable here ###
-	redLower = (150, 100, 100)
-	redUpper = (200, 255, 255)
-	prevFrame =  np.zeros((256,256,3), np.uint8)	
-	# lk_params = dict( winSize = (15,15),
-	# 									maxLevel = 2,
-	# 									criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, .03))
-
-
-	### ROS variables ###
-	fg = frame_grabber()
-	sub = rospy.Subscriber("/pixelink/image_py",Image,fg.imageCallback,queue_size = 100)
-	pub = rospy.Publisher("/tracker/meas", Meas, queue_size = 2)
-	
-	tLastImg = rospy.Time()
-	tCurrImg = rospy.Time()
-	rate = rospy.Rate(100)
-	print('ROS Initialized')
-	# keep looping
-	while not rospy.is_shutdown():
+		# Setup Image Processing Variables
+		redLower = (150, 100, 100)
+		redUpper = (200, 255, 255)
 		v = (0,0)
-		tCurrImg = fg.time
-		# check if new image is available
-		if(tCurrImg.to_sec() <= tLastImg.to_sec()):
-			rate.sleep()
-			print('Sleeping, last image taken at: ' + str(tCurrImg.to_sec()))
-			continue
+		
+		# Do image processing
+		redLower = (150, 100, 100)
+		redUpper = (200, 255, 255)
 		
 		# resize the frame, blur it, and convert it to the HSV
 		# color space
-		frame = imutils.resize(fg.frame, width=600)
+		frame = imutils.resize(frame, width=600)
 		blurred = cv2.GaussianBlur(frame, (11, 11), 0)
 		grey = cv2.cvtColor(blurred, cv2.COLOR_BGR2GRAY)
 		hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
@@ -102,11 +82,11 @@ def main(args):
 			center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
 			print('Found balloon')
 			if(tLastImg.to_sec()>0):
-				prevGrey = cv2.cvtColor(cv2.GaussianBlur(prevFrame,(11,11),0),cv2.COLOR_BGR2GRAY)
+				prevGrey = cv2.cvtColor(cv2.GaussianBlur(self.prevFrame,(11,11),0),cv2.COLOR_BGR2GRAY)
 				pts, st, err = cv2.calcOptFlowPyrLK(prevGrey,grey,c,None)#,**lk_params)
 				good_old = c[st==1]
 				good_new = pts[st==1]
-				s = np.sum(good_new-good_old,axis=0)
+				s = np.sum(good_new-good_old,axis=0)/(tCurrImg - self.tLastImg) #This had better not be dividing by zero...
 				v = s/len(good_new[:,1])
 			# # only proceed if the radius meets a minimum size
 			# if radius > 10:
@@ -115,7 +95,7 @@ def main(args):
 			# 	cv2.circle(frame, (int(x), int(y)), int(radius),
 			# 		(0, 255, 255), 2)
 			# 	cv2.circle(frame, center, 5, (0, 0, 255), -1)
-		prevFrame = frame
+		self.prevFrame = frame
 		# show the frame to our screen
 
 		measMsg = Meas()
@@ -125,10 +105,28 @@ def main(args):
 		measMsg.v[1] = v[1]
 		tCurr = rospy.Time.now() 
 		measMsg.tStamp = tCurr.to_sec()
-		pub.publsih(measMsg)
+		self.pub.publsih(measMsg)
 
-		tLastImg = tCurrImg
-		rate.sleep()
+		self.tLastImg = tCurrImg
+
+def main(args):
+	rospy.init_node('ball_tracker', anonymous=True)	
+
+	### Image Processing variable here ###
+
+	prevFrame =  np.zeros((256,256,3), np.uint8)	
+	# lk_params = dict( winSize = (15,15),
+	# 									maxLevel = 2,
+	# 									criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, .03))
+
+
+	### ROS variables ###
+	fg = frame_grabber()
+
+	self.sub = rospy.Subscriber("/pixelink/image_py",Image,fg.imageCallback,queue_size = 100)
+	print('ROS Initialized')
+	rospy.spin()
+	
 
 if __name__ == '__main__':
 	main(sys.argv)
