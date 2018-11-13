@@ -82,16 +82,17 @@ class frame_grabber:
       ((x, y), radius) = cv2.minEnclosingCircle(c)
       M = cv2.moments(c)
       center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
-      print('Found balloon '+ str(c.size))
+      print('Found balloon '+ str(c.shape))
+      inPts = np.transpose(np.array([c[:,0,0],c[:,0,1]],dtype=np.float32))
       found = True
       if(self.tLastImg.to_sec()>0):
         prevGrey = cv2.cvtColor(cv2.GaussianBlur(self.prevFrame,(11,11),0),cv2.COLOR_BGR2GRAY)
-        pts, st, err = cv2.calcOpticalFlowPyrLK(prevGrey,grey,c,None)#,**lk_params)
+        pts, st, err = cv2.calcOpticalFlowPyrLK(prevGrey,grey,np.float32([inPts]),None)#,**lk_params)
         good_old = c[st==1]
-        good_new = pts[st==1]
-        s = np.sum(good_new-good_old,axis=0)/(tCurrImg - self.tLastImg) #This had better not be dividing by zero...
-        v = s/len(good_new[:,1])
-        
+        good_new = pts[np.transpose(st)==1]
+        s = np.sum(good_new-good_old,axis=0)/len(good_new[:,1]) 
+        v = s/(tCurrImg.to_sec() - self.tLastImg.to_sec())#This had better not be dividing by zero...
+        print('avg motion is ' + str(s)+'\t and the avg vel is '+str(v))
       # # only proceed if the radius meets a minimum size
       # if radius > 10:
       # 	# draw the circle and centroid on the frame,
@@ -118,7 +119,7 @@ class frame_grabber:
       measMsg.v[1] = v[1]
       tCurr = rospy.Time.now() 
       measMsg.tStamp = tCurr.to_sec()
-      self.pub.publsih(measMsg)
+      self.pub.publish(measMsg)
 
     self.tLastImg = tCurrImg
 
