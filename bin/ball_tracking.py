@@ -44,13 +44,11 @@ class frame_grabber:
     tCurrImg = msg.header.stamp
 
     # Setup Image Processing Variables
-    redLower = (150, 100, 100)
-    redUpper = (200, 255, 255)
+    redLower1 = (150, 100, 100)
+    redUpper1 = (180, 255, 255)
+    redLower2 = (0, 100, 100)
+    redUpper2 = (20, 255, 255)
     v = (0,0)
-    
-    # Do image processing
-    redLower = (150, 100, 100)
-    redUpper = (200, 255, 255)
     
     # resize the frame, blur it, and convert it to the HSV
     # color space
@@ -62,7 +60,8 @@ class frame_grabber:
     # construct a mask for the color "red", then perform
     # a series of dilations and erosions to remove any small
     # blobs left in the mask
-    mask = cv2.inRange(hsv, redLower, redUpper)
+    mask = cv2.inRange(hsv, redLower1, redUpper1)
+    mask = mask | cv2.inRange(hsv, redLower2, redUpper2)
     mask = cv2.erode(mask, None, iterations=2)
     mask = cv2.dilate(mask, None, iterations=2)
 
@@ -72,7 +71,7 @@ class frame_grabber:
       cv2.CHAIN_APPROX_SIMPLE)
     cnts = cnts[0] if imutils.is_cv2() else cnts[1]
     center = None
-    print('Processed frame')
+    print('Processed frame, found '+str(len(cnts))+' contours')
     # only proceed if at least one contour was found
     
     if len(cnts) > 0:
@@ -83,11 +82,11 @@ class frame_grabber:
       ((x, y), radius) = cv2.minEnclosingCircle(c)
       M = cv2.moments(c)
       center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
-      print('Found balloon')
+      print('Found balloon '+ str(c.size))
       found = True
-      if(tLastImg.to_sec()>0):
+      if(self.tLastImg.to_sec()>0):
         prevGrey = cv2.cvtColor(cv2.GaussianBlur(self.prevFrame,(11,11),0),cv2.COLOR_BGR2GRAY)
-        pts, st, err = cv2.calcOptFlowPyrLK(prevGrey,grey,c,None)#,**lk_params)
+        pts, st, err = cv2.calcOpticalFlowPyrLK(prevGrey,grey,c,None)#,**lk_params)
         good_old = c[st==1]
         good_new = pts[st==1]
         s = np.sum(good_new-good_old,axis=0)/(tCurrImg - self.tLastImg) #This had better not be dividing by zero...
@@ -97,11 +96,19 @@ class frame_grabber:
       # if radius > 10:
       # 	# draw the circle and centroid on the frame,
       # 	# then update the list of tracked points
-      # 	cv2.circle(frame, (int(x), int(y)), int(radius),
-      # 		(0, 255, 255), 2)
-      # 	cv2.circle(frame, center, 5, (0, 0, 255), -1)
-    self.prevFrame = frame
+      	
+      cv2.circle(frame, (int(x), int(y)), int(radius),
+        (0, 255, 255), 2)
+      cv2.circle(frame, center, 5, (0, 0, 255), -1)
+
     # show the frame to our screen
+    cv2.imshow("Frame", hsv[:,:,0])
+    cv2.imshow("Frame2", hsv[:,:,1])
+    cv2.imshow("Frame3", hsv[:,:,2])
+    key = cv2.waitKey(1) & 0xFF
+    self.prevFrame = frame
+      
+    
 
     measMsg = Meas()
     if(found):
