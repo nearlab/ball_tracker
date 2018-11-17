@@ -29,6 +29,7 @@ class frame_grabber:
     self.bridge = CvBridge()
     
     self.pub = rospy.Publisher("/tracker/meas", Meas, queue_size = 2)
+    self.count = 0
     print('Frame Grabber Initialized')
 
   # Callback for when an image is available
@@ -102,10 +103,10 @@ class frame_grabber:
         (0, 255, 255), 2)
       cv2.circle(frame, center, 5, (0, 0, 255), -1)
 
-    # show the frame to our screen
-    cv2.imshow("Frame", hsv[:,:,0])
-    cv2.imshow("Frame2", hsv[:,:,1])
-    cv2.imshow("Frame3", hsv[:,:,2])
+    # save the frame to file
+    self.count = self.count + 1
+    imName = "image-%04d.jpg" % self.count
+    cv2.imwrite(imName,frame)
     key = cv2.waitKey(1) & 0xFF
     self.prevFrame = frame
       
