@@ -11,6 +11,7 @@ from collections import deque
 from imutils.video import VideoStream
 import numpy as np
 import argparse
+import math
 import cv2
 import imutils
 import roslib
@@ -113,9 +114,9 @@ class frame_grabber:
     
 
     measMsg = Meas()
-    if(found):
-      measMsg.r[0] = center[0]
-      measMsg.r[1] = center[1]
+    if(found and not (math.isnan(v[0]) or math.isnan(v[1]))):
+      measMsg.r[0] = center[0] - np.size(frame, 1)/2
+      measMsg.r[1] = center[1] - np.size(frame, 0)/2
       measMsg.v[0] = v[0]
       measMsg.v[1] = v[1]
       tCurr = rospy.Time.now() 
